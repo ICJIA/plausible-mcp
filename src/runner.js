@@ -163,10 +163,11 @@ export function parseFilter(filterStr) {
   if (!cleanValue) throw new Error('Filter value is empty after sanitization.');
 
   // v1 filter format: property op value
+  // v1 uses == and != with glob wildcards (**) for contains matching
   const opMap = { is: '==', is_not: '!=', contains: '==', contains_not: '!=' };
   const v1Op = opMap[operator];
   const v1Value = (operator === 'contains' || operator === 'contains_not')
-    ? `*${cleanValue}*` : cleanValue;
+    ? `**${cleanValue}**` : cleanValue;
 
   return { property: dimension, op: v1Op, value: v1Value };
 }

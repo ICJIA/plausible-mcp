@@ -178,7 +178,7 @@ describe('sanitizePath', () => {
 describe('parseFilter', () => {
   it('parses "page contains /grants"', () => {
     const result = parseFilter('page contains /grants');
-    assert.deepEqual(result, { property: 'event:page', op: '==', value: '*/grants*' });
+    assert.deepEqual(result, { property: 'event:page', op: '==', value: '**/grants**' });
   });
 
   it('parses "source is Google"', () => {
@@ -193,7 +193,7 @@ describe('parseFilter', () => {
 
   it('parses "country contains_not US"', () => {
     const result = parseFilter('country contains_not US');
-    assert.deepEqual(result, { property: 'visit:country_name', op: '!=', value: '*US*' });
+    assert.deepEqual(result, { property: 'visit:country_name', op: '!=', value: '**US**' });
   });
 
   it('rejects unknown property', () => {
@@ -214,7 +214,7 @@ describe('parseFilter', () => {
 
   it('sanitizes filter value', () => {
     const result = parseFilter('page contains /test\x00\u200B');
-    assert.deepEqual(result, { property: 'event:page', op: '==', value: '*/test*' });
+    assert.deepEqual(result, { property: 'event:page', op: '==', value: '**/test**' });
   });
 
   it('returns null for falsy input', () => {
