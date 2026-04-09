@@ -1,0 +1,40 @@
+{
+  "name": "@icjia/plausible-mcp",
+  "version": "0.1.0",
+  "description": "Lightweight MCP server that queries self-hosted Plausible Analytics and returns compressed results optimized for LLM context windows",
+  "type": "module",
+  "main": "src/cli.js",
+  "bin": {
+    "plausible-mcp": "src/cli.js"
+  },
+  "files": [
+    "src/",
+    "LICENSE",
+    "README.md"
+  ],
+  "scripts": {
+    "test": "node --test test/*.test.js",
+    "start": "node src/cli.js"
+  },
+  "keywords": [
+    "mcp",
+    "plausible",
+    "analytics",
+    "claude",
+    "model-context-protocol"
+  ],
+  "author": "ICJIA",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ICJIA/plausible-mcp.git"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/server": "2.0.0-alpha.2",
+    "commander": "14.0.3",
+    "zod": "4.3.6"
+  }
+}
