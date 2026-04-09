@@ -387,3 +387,4 @@ claude mcp add plausible-mcp -s user \
 - **a11yscan** — CLI accessibility auditor
 - **A11yDash** — Accessibility dashboard
 - **ResearchHub 2.0** — One of the 15+ sites this server will monitor
+.
