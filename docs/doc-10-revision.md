@@ -106,7 +106,7 @@ This document catalogues findings from an adversarial red/blue team audit of the
 
 **API:** Use the v2 query endpoint with `dimensions: ["time:month"]` (or `time:day`, `time:week`). Returns `{ results: [["2025-01", 1200, 1500], ["2025-02", 1300, 1600], ...] }`.
 
-**Tool spec:** `query_timeseries` — params: `siteId`, `period`, `dateRange`, `interval` (enum: `day`, `week`, `month`; default: auto-detect from period), `metrics`. Returns compressed timeseries: one line per time bucket with date and metrics.
+**Tool spec:** `query_timeseries` — params: `siteId`, `period`, `dateRange`, `interval` (enum: `day`, `week`, `month`; default: `month`), `metrics`. Returns compressed timeseries: one line per time bucket with date and metrics.
 
 **Compression:** Compact format:
 ```
@@ -127,7 +127,7 @@ icjia.illinois.gov — timeseries [6mo] (monthly)
 - `"source is Google"` → `["is", "visit:source", ["Google"]]`
 - `"country is US"` → `["is", "visit:country_name", ["US"]]`
 
-For v1 scope: support `is` and `contains` operators only. Validate dimension names against the allowlist. Sanitize filter values (same control char / newline / zero-width stripping).
+Support all four operators: `is`, `is_not`, `contains`, `contains_not`. Implementation cost is negligible and `is_not`/`contains_not` are needed for exclusion queries (e.g., "traffic NOT from Google"). Validate dimension names against the allowlist. Sanitize filter values (same control char / newline / zero-width stripping).
 
 ---
 
