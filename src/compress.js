@@ -50,7 +50,6 @@ export function formatDelta(metric, current, prior) {
   const p = Number(prior);
 
   if (CONFIG.PERCENTAGE_METRICS.includes(metric)) {
-    // Show absolute pp change
     const diff = c - p;
     if (Math.abs(diff) < 0.05) return '(=)';
     const sign = diff > 0 ? '+' : '';
@@ -84,31 +83,33 @@ export function enforceOutputLimits(text) {
 }
 
 // ---------------------------------------------------------------------------
-// Compressors
+// Compressors — v1 API response formats
 // ---------------------------------------------------------------------------
 
+// v1 aggregate response: { results: { metric: { value: N }, ... } }
 export function compressOverview(siteId, period, metrics, response, priorResponse) {
-  if (!response.results || response.results.length === 0) {
+  const results = response?.results;
+  if (!results || Object.keys(results).length === 0) {
     return `${siteId} [${period}] — no data`;
   }
 
-  const row = response.results[0];
-  const priorRow = priorResponse?.results?.[0] || null;
+  const priorResults = priorResponse?.results || null;
 
-  const parts = metrics.map((m, i) => {
-    const val = row[i] ?? null;
+  const parts = metrics.map((m) => {
+    const val = results[m]?.value ?? null;
     const label = metricLabel(m);
     const formatted = formatMetricValue(m, val);
-    const delta = priorRow ? formatDelta(m, val, priorRow[i]) : '';
+    const delta = priorResults ? formatDelta(m, val, priorResults[m]?.value) : '';
     return `${label}:${formatted}${delta}`;
   });
 
   return enforceOutputLimits(`${siteId} [${period}] ${parts.join(' ')}`);
 }
 
+// v1 breakdown response: { results: [{ dimension: val, metric1: N, ... }, ...] }
 export function compressBreakdown(siteId, period, metrics, dimensionName, response, options = {}) {
-  const { sort = 'desc', limit } = options;
-  const rows = response.results || [];
+  const { sort = 'desc' } = options;
+  const rows = response?.results || [];
 
   if (rows.length === 0) {
     return `${siteId} — ${dimensionName} [${period}] — no data`;
@@ -116,15 +117,18 @@ export function compressBreakdown(siteId, period, metrics, dimensionName, respon
 
   const label = sort === 'asc' ? 'Bottom' : 'Top';
   const isPage = dimensionName === 'event:page' || dimensionName === 'Pages';
-  const displayDimension = isPage ? 'pages' : dimensionName.replace('visit:', '');
+
+  // Determine the dimension key from the first row (e.g., "page", "source", "country", etc.)
+  const dimKey = Object.keys(rows[0]).find(k => !metrics.includes(k)) || 'unknown';
+  const displayDimension = isPage ? 'pages' : dimKey;
 
   const lines = [`${siteId} — ${label} ${displayDimension} [${period}] (${rows.length} shown)`];
 
   for (let r = 0; r < rows.length; r++) {
     const row = rows[r];
-    const dimValue = isPage ? sanitizePath(String(row[0])) : sanitize(String(row[0]));
-    const metricParts = metrics.map((m, i) => {
-      const val = row[i + 1] ?? null;
+    const dimValue = isPage ? sanitizePath(String(row[dimKey])) : sanitize(String(row[dimKey]));
+    const metricParts = metrics.map((m) => {
+      const val = row[m] ?? null;
       return `${metricLabel(m)}:${formatMetricValue(m, val)}`;
     });
     lines.push(`  ${r + 1}. ${dimValue} — ${metricParts.join(' ')}`);
@@ -133,8 +137,9 @@ export function compressBreakdown(siteId, period, metrics, dimensionName, respon
   return enforceOutputLimits(lines.join('\n'));
 }
 
+// v1 timeseries response: { results: [{ date: "YYYY-MM-DD", metric1: N, ... }, ...] }
 export function compressTimeseries(siteId, period, interval, metrics, response) {
-  const rows = response.results || [];
+  const rows = response?.results || [];
 
   if (rows.length === 0) {
     return `${siteId} — timeseries [${period}] — no data`;
@@ -144,9 +149,9 @@ export function compressTimeseries(siteId, period, interval, metrics, response) 
   const lines = [`${siteId} — timeseries [${period}] (${intervalLabel}, ${rows.length} points)`];
 
   for (const row of rows) {
-    const dateStr = sanitize(String(row[0]), 10);
-    const metricParts = metrics.map((m, i) => {
-      const val = row[i + 1] ?? null;
+    const dateStr = sanitize(String(row.date), 10);
+    const metricParts = metrics.map((m) => {
+      const val = row[m] ?? null;
       return `${metricLabel(m)}:${formatMetricValue(m, val)}`;
     });
     lines.push(`  ${dateStr}  ${metricParts.join('  ')}`);

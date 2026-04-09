@@ -162,7 +162,13 @@ export function parseFilter(filterStr) {
   const cleanValue = sanitize(value, CONFIG.MAX_FILTER_VALUE_LENGTH);
   if (!cleanValue) throw new Error('Filter value is empty after sanitization.');
 
-  return [operator, dimension, [cleanValue]];
+  // v1 filter format: property op value
+  const opMap = { is: '==', is_not: '!=', contains: '==', contains_not: '!=' };
+  const v1Op = opMap[operator];
+  const v1Value = (operator === 'contains' || operator === 'contains_not')
+    ? `*${cleanValue}*` : cleanValue;
+
+  return { property: dimension, op: v1Op, value: v1Value };
 }
 
 // ---------------------------------------------------------------------------
@@ -233,14 +239,18 @@ function mapNetworkError(err, baseUrl) {
 }
 
 // ---------------------------------------------------------------------------
-// Plausible v2 Query API
+// Plausible v1 Stats API (GET requests with query params)
 // ---------------------------------------------------------------------------
 
-export async function queryPlausible(body, { skipCache = false } = {}) {
+async function plausibleGet(path, params, { skipCache = false } = {}) {
   const baseUrl = ENV.baseUrl;
   const apiKey = ENV.apiKey;
-  const endpoint = `${baseUrl}/api/v2/query`;
-  const cacheKey = getCacheKey(endpoint, body);
+  const url = new URL(`${baseUrl}${path}`);
+  for (const [k, v] of Object.entries(params)) {
+    if (v != null) url.searchParams.set(k, String(v));
+  }
+  const endpoint = url.toString();
+  const cacheKey = getCacheKey(endpoint, null);
 
   if (!skipCache) {
     const cached = getCached(cacheKey);
@@ -253,12 +263,7 @@ export async function queryPlausible(body, { skipCache = false } = {}) {
   let response;
   try {
     response = await rateLimitedFetch(endpoint, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(body),
+      headers: { 'Authorization': `Bearer ${apiKey}` },
     });
   } catch (err) {
     throw new Error(mapNetworkError(err, baseUrl));
@@ -280,10 +285,59 @@ export async function queryPlausible(body, { skipCache = false } = {}) {
   let data;
   try { data = JSON.parse(text); } catch { throw new Error('Invalid JSON in Plausible response.'); }
 
-  validateQueryResponse(data);
-
   setCache(cacheKey, data);
   return data;
+}
+
+// v1 aggregate: GET /api/v1/stats/aggregate
+// Returns { results: { metric: { value: N }, ... } }
+export async function queryAggregate(siteId, { metrics, period, dateRange, filters }, opts) {
+  const params = {
+    site_id: siteId,
+    metrics: metrics.join(','),
+    period,
+  };
+  if (Array.isArray(dateRange)) {
+    params.period = 'custom';
+    params.date = dateRange.join(',');
+  }
+  if (filters) params.filters = `${filters.property}${filters.op}${filters.value}`;
+  return plausibleGet('/api/v1/stats/aggregate', params, opts);
+}
+
+// v1 breakdown: GET /api/v1/stats/breakdown
+// Returns { results: [{ dimension: val, metric1: N, ... }, ...] }
+export async function queryBreakdown(siteId, { metrics, period, dateRange, property, limit, filters }, opts) {
+  const params = {
+    site_id: siteId,
+    metrics: metrics.join(','),
+    period,
+    property,
+    limit,
+  };
+  if (Array.isArray(dateRange)) {
+    params.period = 'custom';
+    params.date = dateRange.join(',');
+  }
+  if (filters) params.filters = `${filters.property}${filters.op}${filters.value}`;
+  return plausibleGet('/api/v1/stats/breakdown', params, opts);
+}
+
+// v1 timeseries: GET /api/v1/stats/timeseries
+// Returns { results: [{ date: "YYYY-MM-DD", metric1: N, ... }, ...] }
+export async function queryTimeseries(siteId, { metrics, period, dateRange, interval, filters }, opts) {
+  const params = {
+    site_id: siteId,
+    metrics: metrics.join(','),
+    period,
+  };
+  if (interval) params.interval = interval === 'week' ? 'date' : interval;
+  if (Array.isArray(dateRange)) {
+    params.period = 'custom';
+    params.date = dateRange.join(',');
+  }
+  if (filters) params.filters = `${filters.property}${filters.op}${filters.value}`;
+  return plausibleGet('/api/v1/stats/timeseries', params, opts);
 }
 
 // ---------------------------------------------------------------------------
@@ -406,16 +460,7 @@ export function computePriorPeriodRange(period, dateRange) {
   };
 }
 
-// ---------------------------------------------------------------------------
-// Build v2 query body
-// ---------------------------------------------------------------------------
-
+// buildQueryBody kept for backward compat with tests — maps to v1 params
 export function buildQueryBody(siteId, { metrics, period, dateRange, dimensions, filters, orderBy, limit }) {
-  const body = { site_id: siteId, metrics };
-  body.date_range = dateRange || period;
-  if (dimensions && dimensions.length > 0) body.dimensions = dimensions;
-  if (filters) body.filters = [filters];
-  if (orderBy) body.order_by = orderBy;
-  if (limit != null) body.limit = limit;
-  return body;
+  return { site_id: siteId, metrics, period, dateRange, dimensions, filters, orderBy, limit };
 }

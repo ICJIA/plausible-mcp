@@ -5,8 +5,8 @@ import * as z from 'zod/v4';
 import { VERSION, PACKAGE_NAME, CONFIG, ENV, log } from './config.js';
 import {
   validateSiteId, validateDateRange, clampLimit, parseFilter,
-  queryPlausible, listSites, checkHealth,
-  buildQueryBody, computePriorPeriodRange,
+  queryAggregate, queryBreakdown as queryBreakdownApi, queryTimeseries as queryTimeseriesApi,
+  listSites, checkHealth, computePriorPeriodRange,
 } from './runner.js';
 import {
   compressOverview, compressBreakdown, compressTimeseries,
@@ -43,19 +43,17 @@ export function createServer() {
         const metrics = params.metrics;
         const filter = parseFilter(params.filter);
 
-        const body = buildQueryBody(siteId, {
+        const response = await queryAggregate(siteId, {
           metrics, period: params.period, dateRange, filters: filter,
         });
-        const response = await queryPlausible(body);
 
         let priorResponse = null;
         const ranges = computePriorPeriodRange(params.period, params.dateRange);
         if (ranges) {
           try {
-            const priorBody = buildQueryBody(siteId, {
+            priorResponse = await queryAggregate(siteId, {
               metrics, period: 'custom', dateRange: ranges.prior, filters: filter,
             });
-            priorResponse = await queryPlausible(priorBody);
           } catch (err) {
             log('debug', 'Prior period query failed (deltas skipped):', err.message);
           }
@@ -91,12 +89,15 @@ export function createServer() {
         const metrics = params.metrics;
         const filter = parseFilter(params.filter);
 
-        const orderBy = [[metrics[0], params.sort]];
-        const body = buildQueryBody(siteId, {
+        const response = await queryBreakdownApi(siteId, {
           metrics, period: params.period, dateRange,
-          dimensions: ['event:page'], filters: filter, orderBy, limit,
+          property: 'event:page', limit, filters: filter,
         });
-        const response = await queryPlausible(body);
+
+        // Sort: v1 API returns desc by default; reverse for asc
+        if (params.sort === 'asc' && response.results) {
+          response.results.reverse();
+        }
 
         return { content: [{ type: 'text', text: compressBreakdown(siteId, params.period, metrics, 'Pages', response, { sort: params.sort, limit }) }] };
       } catch (err) {
@@ -129,12 +130,14 @@ export function createServer() {
         const metrics = params.metrics;
         const filter = parseFilter(params.filter);
 
-        const orderBy = [[metrics[0], params.sort]];
-        const body = buildQueryBody(siteId, {
+        const response = await queryBreakdownApi(siteId, {
           metrics, period: params.period, dateRange,
-          dimensions: [params.dimension], filters: filter, orderBy, limit,
+          property: params.dimension, limit, filters: filter,
         });
-        const response = await queryPlausible(body);
+
+        if (params.sort === 'asc' && response.results) {
+          response.results.reverse();
+        }
 
         return { content: [{ type: 'text', text: compressBreakdown(siteId, params.period, metrics, params.dimension, response, { sort: params.sort, limit }) }] };
       } catch (err) {
@@ -163,13 +166,11 @@ export function createServer() {
         const dateRange = validateDateRange(params.period, params.dateRange);
         const metrics = params.metrics;
         const filter = parseFilter(params.filter);
-        const timeDim = `time:${params.interval}`;
 
-        const body = buildQueryBody(siteId, {
+        const response = await queryTimeseriesApi(siteId, {
           metrics, period: params.period, dateRange,
-          dimensions: [timeDim], filters: filter,
+          interval: params.interval, filters: filter,
         });
-        const response = await queryPlausible(body);
 
         return { content: [{ type: 'text', text: compressTimeseries(siteId, params.period, params.interval, metrics, response) }] };
       } catch (err) {

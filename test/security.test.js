@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import {
   validateSiteId, validateDateRange, clampLimit,
   sanitize, sanitizePath, parseFilter,
-  validateQueryResponse, validateSitesResponse,
+  validateSitesResponse,
 } from '../src/runner.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -178,19 +178,22 @@ describe('sanitizePath', () => {
 describe('parseFilter', () => {
   it('parses "page contains /grants"', () => {
     const result = parseFilter('page contains /grants');
-    assert.deepEqual(result, ['contains', 'event:page', ['/grants']]);
+    assert.deepEqual(result, { property: 'event:page', op: '==', value: '*/grants*' });
   });
 
   it('parses "source is Google"', () => {
-    assert.deepEqual(parseFilter('source is Google'), ['is', 'visit:source', ['Google']]);
+    const result = parseFilter('source is Google');
+    assert.deepEqual(result, { property: 'visit:source', op: '==', value: 'Google' });
   });
 
   it('parses "page is_not /"', () => {
-    assert.deepEqual(parseFilter('page is_not /'), ['is_not', 'event:page', ['/']]);
+    const result = parseFilter('page is_not /');
+    assert.deepEqual(result, { property: 'event:page', op: '!=', value: '/' });
   });
 
   it('parses "country contains_not US"', () => {
-    assert.deepEqual(parseFilter('country contains_not US'), ['contains_not', 'visit:country_name', ['US']]);
+    const result = parseFilter('country contains_not US');
+    assert.deepEqual(result, { property: 'visit:country_name', op: '!=', value: '*US*' });
   });
 
   it('rejects unknown property', () => {
@@ -211,45 +214,13 @@ describe('parseFilter', () => {
 
   it('sanitizes filter value', () => {
     const result = parseFilter('page contains /test\x00\u200B');
-    assert.deepEqual(result, ['contains', 'event:page', ['/test']]);
+    assert.deepEqual(result, { property: 'event:page', op: '==', value: '*/test*' });
   });
 
   it('returns null for falsy input', () => {
     assert.equal(parseFilter(null), null);
     assert.equal(parseFilter(''), null);
     assert.equal(parseFilter(undefined), null);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// validateQueryResponse
-// ---------------------------------------------------------------------------
-
-describe('validateQueryResponse', () => {
-  it('accepts valid aggregate response', () => {
-    const data = { results: [[100, 200, 50.5]] };
-    assert.doesNotThrow(() => validateQueryResponse(data));
-  });
-
-  it('accepts valid breakdown response', () => {
-    const data = { results: [['/page1', 100], ['/page2', 50]] };
-    assert.doesNotThrow(() => validateQueryResponse(data));
-  });
-
-  it('rejects null', () => {
-    assert.throws(() => validateQueryResponse(null), /expected an object/);
-  });
-
-  it('rejects missing results', () => {
-    assert.throws(() => validateQueryResponse({}), /not an array/);
-  });
-
-  it('rejects results as string', () => {
-    assert.throws(() => validateQueryResponse({ results: 'bad' }), /not an array/);
-  });
-
-  it('rejects flat results (not array of arrays)', () => {
-    assert.throws(() => validateQueryResponse({ results: [1, 2, 3] }), /not an array/);
   });
 });
 

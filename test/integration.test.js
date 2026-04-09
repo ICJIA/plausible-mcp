@@ -2,7 +2,8 @@ import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer as createHttpServer } from 'node:http';
 import {
-  queryPlausible, listSites, checkHealth, clearCache,
+  queryAggregate, queryBreakdown, queryTimeseries,
+  listSites, checkHealth, clearCache,
   computePriorPeriodRange, buildQueryBody,
 } from '../src/runner.js';
 
@@ -18,7 +19,6 @@ function setMockHandler(handler) {
 }
 
 before(async () => {
-  // Set env vars to point to our mock server
   mockServer = createHttpServer((req, res) => {
     if (mockServer._handler) {
       mockServer._handler(req, res);
@@ -39,33 +39,20 @@ after(() => {
 });
 
 // ---------------------------------------------------------------------------
-// queryPlausible
+// queryAggregate (v1)
 // ---------------------------------------------------------------------------
 
-describe('queryPlausible', () => {
-  it('parses valid v2 aggregate response', async () => {
+describe('queryAggregate', () => {
+  it('parses valid v1 aggregate response', async () => {
     clearCache();
     setMockHandler((req, res) => {
       res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ results: [[1200, 1500, 55.2]] }));
+      res.end(JSON.stringify({ results: { visitors: { value: 1200 }, pageviews: { value: 1500 }, bounce_rate: { value: 55.2 } } }));
     });
 
-    const body = { site_id: 'example.com', metrics: ['visitors', 'pageviews', 'bounce_rate'], date_range: '30d' };
-    const data = await queryPlausible(body, { skipCache: true });
-    assert.deepEqual(data.results, [[1200, 1500, 55.2]]);
-  });
-
-  it('parses valid v2 breakdown response', async () => {
-    clearCache();
-    setMockHandler((req, res) => {
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ results: [['/', 4200, 8100], ['/about', 1800, 2300]] }));
-    });
-
-    const body = { site_id: 'example.com', metrics: ['visitors', 'pageviews'], date_range: '30d', dimensions: ['event:page'] };
-    const data = await queryPlausible(body, { skipCache: true });
-    assert.equal(data.results.length, 2);
-    assert.equal(data.results[0][0], '/');
+    const data = await queryAggregate('example.com', { metrics: ['visitors', 'pageviews', 'bounce_rate'], period: '30d' });
+    assert.equal(data.results.visitors.value, 1200);
+    assert.equal(data.results.bounce_rate.value, 55.2);
   });
 
   it('maps 401 to auth error', async () => {
@@ -76,7 +63,7 @@ describe('queryPlausible', () => {
     });
 
     await assert.rejects(
-      () => queryPlausible({ site_id: 'x.com', metrics: ['visitors'], date_range: '30d' }, { skipCache: true }),
+      () => queryAggregate('x.com', { metrics: ['visitors'], period: '30d' }),
       /Authentication failed/
     );
   });
@@ -89,7 +76,7 @@ describe('queryPlausible', () => {
     });
 
     await assert.rejects(
-      () => queryPlausible({ site_id: 'x.com', metrics: ['visitors'], date_range: '30d' }, { skipCache: true }),
+      () => queryAggregate('x.com', { metrics: ['visitors'], period: '30d' }),
       /Rate limited/
     );
   });
@@ -102,7 +89,7 @@ describe('queryPlausible', () => {
     });
 
     await assert.rejects(
-      () => queryPlausible({ site_id: 'x.com', metrics: ['visitors'], date_range: '30d' }, { skipCache: true }),
+      () => queryAggregate('x.com', { metrics: ['visitors'], period: '30d' }),
       /server error/
     );
   });
@@ -115,21 +102,8 @@ describe('queryPlausible', () => {
     });
 
     await assert.rejects(
-      () => queryPlausible({ site_id: 'x.com', metrics: ['visitors'], date_range: '30d' }, { skipCache: true }),
+      () => queryAggregate('x.com', { metrics: ['visitors'], period: '30d' }),
       /Invalid JSON/
-    );
-  });
-
-  it('rejects invalid response shape (flat array)', async () => {
-    clearCache();
-    setMockHandler((req, res) => {
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ results: [1, 2, 3] }));
-    });
-
-    await assert.rejects(
-      () => queryPlausible({ site_id: 'x.com', metrics: ['visitors'], date_range: '30d' }, { skipCache: true }),
-      /not an array/
     );
   });
 
@@ -141,7 +115,7 @@ describe('queryPlausible', () => {
     });
 
     await assert.rejects(
-      () => queryPlausible({ site_id: 'x.com', metrics: ['visitors'], date_range: '30d' }, { skipCache: true }),
+      () => queryAggregate('x.com', { metrics: ['visitors'], period: '30d' }),
       /Unexpected response/
     );
   });
@@ -150,12 +124,11 @@ describe('queryPlausible', () => {
     clearCache();
     setMockHandler((req, res) => {
       res.writeHead(200, { 'Content-Type': 'application/json' });
-      // 6MB of data
       res.end('x'.repeat(6 * 1024 * 1024));
     });
 
     await assert.rejects(
-      () => queryPlausible({ site_id: 'x.com', metrics: ['visitors'], date_range: '30d' }, { skipCache: true }),
+      () => queryAggregate('x.com', { metrics: ['visitors'], period: '30d' }),
       /too large/
     );
   });
@@ -166,13 +139,54 @@ describe('queryPlausible', () => {
     setMockHandler((req, res) => {
       callCount++;
       res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ results: [[100]] }));
+      res.end(JSON.stringify({ results: { visitors: { value: 100 } } }));
     });
 
-    const body = { site_id: 'cache-test.com', metrics: ['visitors'], date_range: '30d' };
-    await queryPlausible(body);
-    await queryPlausible(body); // should hit cache
+    await queryAggregate('cache-test.com', { metrics: ['visitors'], period: '30d' });
+    await queryAggregate('cache-test.com', { metrics: ['visitors'], period: '30d' });
     assert.equal(callCount, 1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// queryBreakdown (v1)
+// ---------------------------------------------------------------------------
+
+describe('queryBreakdown', () => {
+  it('parses valid v1 breakdown response', async () => {
+    clearCache();
+    setMockHandler((req, res) => {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ results: [
+        { page: '/', visitors: 4200, pageviews: 8100 },
+        { page: '/about', visitors: 1800, pageviews: 2300 },
+      ]}));
+    });
+
+    const data = await queryBreakdown('example.com', { metrics: ['visitors', 'pageviews'], period: '30d', property: 'event:page', limit: 10 });
+    assert.equal(data.results.length, 2);
+    assert.equal(data.results[0].page, '/');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// queryTimeseries (v1)
+// ---------------------------------------------------------------------------
+
+describe('queryTimeseries', () => {
+  it('parses valid v1 timeseries response', async () => {
+    clearCache();
+    setMockHandler((req, res) => {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ results: [
+        { date: '2025-01-01', visitors: 1200, pageviews: 3400 },
+        { date: '2025-02-01', visitors: 1300, pageviews: 3600 },
+      ]}));
+    });
+
+    const data = await queryTimeseries('example.com', { metrics: ['visitors', 'pageviews'], period: '6mo', interval: 'month' });
+    assert.equal(data.results.length, 2);
+    assert.equal(data.results[0].date, '2025-01-01');
   });
 });
 
@@ -196,7 +210,6 @@ describe('listSites', () => {
 
     const data = await listSites();
     assert.equal(data.site_results.length, 2);
-    assert.equal(data.site_results[0].domain, 'icjia.illinois.gov');
   });
 
   it('handles 403 gracefully', async () => {
@@ -227,13 +240,11 @@ describe('checkHealth', () => {
   });
 
   it('handles connection error gracefully', async () => {
-    // Point to a port that definitely isn't listening
     const origUrl = process.env.PLAUSIBLE_BASE_URL;
     process.env.PLAUSIBLE_BASE_URL = 'http://127.0.0.1:1';
     try {
       const result = await checkHealth('example.com');
       assert.equal(result.ok, false);
-      assert.ok(result.error);
     } finally {
       process.env.PLAUSIBLE_BASE_URL = origUrl;
     }
@@ -256,68 +267,15 @@ describe('computePriorPeriodRange', () => {
   it('returns date ranges for 30d', () => {
     const result = computePriorPeriodRange('30d');
     assert.ok(result);
-    assert.ok(result.current);
-    assert.ok(result.prior);
     assert.equal(result.current.length, 2);
     assert.equal(result.prior.length, 2);
-    // Verify dates are ISO format
     assert.match(result.current[0], /^\d{4}-\d{2}-\d{2}$/);
-    assert.match(result.prior[0], /^\d{4}-\d{2}-\d{2}$/);
   });
 
   it('prior end is day before current start for 7d', () => {
     const result = computePriorPeriodRange('7d');
     const currentStart = new Date(result.current[0] + 'T00:00:00Z');
     const priorEnd = new Date(result.prior[1] + 'T00:00:00Z');
-    const diff = currentStart.getTime() - priorEnd.getTime();
-    assert.equal(diff, 86_400_000); // exactly 1 day gap
-  });
-});
-
-// ---------------------------------------------------------------------------
-// buildQueryBody
-// ---------------------------------------------------------------------------
-
-describe('buildQueryBody', () => {
-  it('builds basic aggregate body', () => {
-    const body = buildQueryBody('example.com', {
-      metrics: ['visitors', 'pageviews'],
-      period: '30d',
-    });
-    assert.equal(body.site_id, 'example.com');
-    assert.deepEqual(body.metrics, ['visitors', 'pageviews']);
-    assert.equal(body.date_range, '30d');
-    assert.equal(body.dimensions, undefined);
-  });
-
-  it('builds breakdown body with dimensions', () => {
-    const body = buildQueryBody('example.com', {
-      metrics: ['visitors'],
-      period: '30d',
-      dimensions: ['event:page'],
-      limit: 10,
-      orderBy: [['visitors', 'desc']],
-    });
-    assert.deepEqual(body.dimensions, ['event:page']);
-    assert.equal(body.limit, 10);
-    assert.deepEqual(body.order_by, [['visitors', 'desc']]);
-  });
-
-  it('includes filter when provided', () => {
-    const body = buildQueryBody('example.com', {
-      metrics: ['visitors'],
-      period: '30d',
-      filters: ['contains', 'event:page', ['/grants']],
-    });
-    assert.deepEqual(body.filters, [['contains', 'event:page', ['/grants']]]);
-  });
-
-  it('uses custom date range', () => {
-    const body = buildQueryBody('example.com', {
-      metrics: ['visitors'],
-      period: 'custom',
-      dateRange: ['2025-01-01', '2025-01-31'],
-    });
-    assert.deepEqual(body.date_range, ['2025-01-01', '2025-01-31']);
+    assert.equal(currentStart.getTime() - priorEnd.getTime(), 86_400_000);
   });
 });

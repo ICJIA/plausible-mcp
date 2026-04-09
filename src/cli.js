@@ -1,17 +1,16 @@
 #!/usr/bin/env node
 
 import { Command } from 'commander';
-import { VERSION, ENV, log } from './config.js';
+import { VERSION, ENV, PACKAGE_NAME, log } from './config.js';
 import {
   validateSiteId, validateDateRange, clampLimit, parseFilter,
-  queryPlausible, listSites, checkHealth,
-  buildQueryBody, computePriorPeriodRange,
+  queryAggregate, queryBreakdown as queryBreakdownApi, queryTimeseries as queryTimeseriesApi,
+  listSites, checkHealth, computePriorPeriodRange,
 } from './runner.js';
 import {
   compressOverview, compressBreakdown, compressTimeseries,
   compressSites, compressStatus,
 } from './compress.js';
-import { PACKAGE_NAME } from './config.js';
 
 const program = new Command();
 
@@ -33,19 +32,17 @@ program
       const site = validateSiteId(siteId);
       const dateRange = validateDateRange(opts.period, opts.dateRange);
       const filter = parseFilter(opts.filter);
-      const body = buildQueryBody(site, {
+      const response = await queryAggregate(site, {
         metrics: opts.metrics, period: opts.period, dateRange, filters: filter,
       });
-      const response = await queryPlausible(body);
 
       let priorResponse = null;
       const ranges = computePriorPeriodRange(opts.period, opts.dateRange);
       if (ranges) {
         try {
-          const priorBody = buildQueryBody(site, {
+          priorResponse = await queryAggregate(site, {
             metrics: opts.metrics, period: 'custom', dateRange: ranges.prior, filters: filter,
           });
-          priorResponse = await queryPlausible(priorBody);
         } catch { /* skip deltas */ }
       }
 
@@ -72,12 +69,11 @@ program
       const dateRange = validateDateRange(opts.period, opts.dateRange);
       const limit = clampLimit(parseInt(opts.limit, 10));
       const filter = parseFilter(opts.filter);
-      const orderBy = [[opts.metrics[0], opts.sort]];
-      const body = buildQueryBody(site, {
+      const response = await queryBreakdownApi(site, {
         metrics: opts.metrics, period: opts.period, dateRange,
-        dimensions: ['event:page'], filters: filter, orderBy, limit,
+        property: 'event:page', limit, filters: filter,
       });
-      const response = await queryPlausible(body);
+      if (opts.sort === 'asc' && response.results) response.results.reverse();
       console.log(compressBreakdown(site, opts.period, opts.metrics, 'Pages', response, { sort: opts.sort, limit }));
     } catch (err) {
       console.error('Error:', err.message);
@@ -102,12 +98,11 @@ program
       const dateRange = validateDateRange(opts.period, opts.dateRange);
       const limit = clampLimit(parseInt(opts.limit, 10));
       const filter = parseFilter(opts.filter);
-      const orderBy = [[opts.metrics[0], opts.sort]];
-      const body = buildQueryBody(site, {
+      const response = await queryBreakdownApi(site, {
         metrics: opts.metrics, period: opts.period, dateRange,
-        dimensions: [opts.dimension], filters: filter, orderBy, limit,
+        property: opts.dimension, limit, filters: filter,
       });
-      const response = await queryPlausible(body);
+      if (opts.sort === 'asc' && response.results) response.results.reverse();
       console.log(compressBreakdown(site, opts.period, opts.metrics, opts.dimension, response, { sort: opts.sort, limit }));
     } catch (err) {
       console.error('Error:', err.message);
@@ -129,12 +124,10 @@ program
       const site = validateSiteId(siteId);
       const dateRange = validateDateRange(opts.period, opts.dateRange);
       const filter = parseFilter(opts.filter);
-      const timeDim = `time:${opts.interval}`;
-      const body = buildQueryBody(site, {
+      const response = await queryTimeseriesApi(site, {
         metrics: opts.metrics, period: opts.period, dateRange,
-        dimensions: [timeDim], filters: filter,
+        interval: opts.interval, filters: filter,
       });
-      const response = await queryPlausible(body);
       console.log(compressTimeseries(site, opts.period, opts.interval, opts.metrics, response));
     } catch (err) {
       console.error('Error:', err.message);
@@ -180,7 +173,6 @@ program
 // ---------------------------------------------------------------------------
 
 async function main() {
-  // If no subcommand given, start MCP server
   if (process.argv.length <= 2) {
     const { startServer } = await import('./server.js');
     await startServer();
