@@ -14,4 +14,5 @@
 - 124 tests across 4 test files (security, compression, integration, timeseries)
 - Aligned with @icjia/lightcap MCP SDK pattern (@modelcontextprotocol/server v2, Zod v4)
 - Comprehensive README with setup instructions for Claude Code, Cursor, VS Code, Windsurf
+- Hardened publish.sh: npm auth check, dirty-tree guard, branch warning, tag conflict check, scoped git add
 - Initial design documents (doc-00, doc-07, doc-10)
