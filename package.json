@@ -1,6 +1,6 @@
 {
   "name": "@icjia/plausible-mcp",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Lightweight MCP server that queries self-hosted Plausible Analytics and returns compressed results optimized for LLM context windows",
   "type": "module",
   "main": "src/cli.js",
