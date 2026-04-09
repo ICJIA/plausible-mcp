@@ -17,7 +17,7 @@ Built for [ICJIA](https://icjia.illinois.gov)'s 15+ state agency web properties 
 ## Requirements
 
 - **Node.js >= 22** (see `.nvmrc`)
-- A self-hosted **Plausible CE** instance with the **v2 Query API** (introduced ~2024)
+- A self-hosted **Plausible CE** instance (uses the v1 Stats API — compatible with all versions)
 - A **Plausible API key** with Stats API scope
 
 ### Getting your Plausible API key
@@ -275,7 +275,7 @@ Running without a subcommand starts the MCP server (stdio mode).
 Your API key is wrong or missing. Double-check `PLAUSIBLE_API_KEY`.
 
 ### "Endpoint not found (404)"
-Your Plausible instance may not support the v2 Query API. Update Plausible CE to a 2024+ release.
+The API endpoint wasn't found. Verify `PLAUSIBLE_BASE_URL` is correct.
 
 ### "Cannot connect to Plausible"
 Check that `PLAUSIBLE_BASE_URL` is correct and the instance is running. Try opening the URL in a browser.
